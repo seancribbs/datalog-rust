@@ -1,10 +1,47 @@
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
     pub head: Atom,
     pub body: Vec<Atom>,
+}
+
+macro_rules! rule {
+    ($head:expr => $($body:expr),+) => {
+        Rule {
+            head: $head,
+            body: vec![$($body),+],
+        }
+    };
+    ($head:expr) => {
+        Rule {
+            head: $head,
+            body: vec![],
+        }
+    }
+}
+
+impl Rule {
+    fn is_range_restricted(&self) -> bool {
+        let body_vars: HashSet<Term> = self
+            .body
+            .iter()
+            .flat_map(|atom| atom.terms.clone())
+            .filter(|term| matches!(term, Term::Var(_)))
+            .collect();
+
+        let head_vars: HashSet<Term> = self
+            .head
+            .terms
+            .iter()
+            .filter(|term| matches!(term, Term::Var(_)))
+            .cloned()
+            .collect();
+
+        head_vars.is_subset(&body_vars)
+    }
 }
 
 impl Display for Rule {
@@ -31,6 +68,15 @@ pub struct Atom {
     pub terms: Vec<Term>,
 }
 
+macro_rules! atom {
+    ($pred_sym:expr, $($term:expr),*) => {
+        Atom {
+            pred_sym: $pred_sym.to_string(),
+            terms: vec![$($term),*]
+        }
+    };
+}
+
 impl Display for Atom {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.pred_sym)?;
@@ -48,10 +94,22 @@ impl Display for Atom {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Term {
     Var(String),
     Sym(String),
+}
+
+macro_rules! var {
+    ($name:expr) => {
+        Term::Var($name.to_string())
+    };
+}
+
+macro_rules! symbol {
+    ($name:expr) => {
+        Term::Sym($name.to_string())
+    };
 }
 
 impl Display for Term {
@@ -118,6 +176,16 @@ impl DerefMut for Substitution {
 
 pub fn solve(program: &Program) -> KnowledgeBase {
     // NOTE: We need to check range restriction
+    assert_eq!(
+        <Vec<Rule>>::new(),
+        program
+            .0
+            .iter()
+            .filter(|rule| !rule.is_range_restricted())
+            .cloned()
+            .collect::<Vec<_>>(),
+        "all rules must be range-restricted"
+    );
     let mut kb = KnowledgeBase::default();
     while let Some(new_kb) = immediate_consequence(program, &kb) {
         kb = new_kb
@@ -237,16 +305,7 @@ mod tests {
 
         let mut rules: Vec<_> = advisers
             .iter()
-            .map(|(adviser, student)| Rule {
-                head: Atom {
-                    pred_sym: "adviser".to_string(),
-                    terms: vec![
-                        Term::Sym(adviser.to_string()),
-                        Term::Sym(student.to_string()),
-                    ],
-                },
-                body: vec![],
-            })
+            .map(|(adviser, student)| rule!(atom!("adviser", symbol!(adviser), symbol!(student))))
             .collect();
 
         // academicAncestor(X,Y) :-
@@ -255,32 +314,11 @@ mod tests {
         //   adviser(X,Y),
         //   academicAncestor(Y,Z).
         rules.extend(vec![
-            Rule {
-                head: Atom {
-                    pred_sym: "academicAncestor".to_string(),
-                    terms: vec![Term::Var("X".to_string()), Term::Var("Y".to_string())],
-                },
-                body: vec![Atom {
-                    pred_sym: "adviser".to_string(),
-                    terms: vec![Term::Var("X".to_string()), Term::Var("Y".to_string())],
-                }],
-            },
-            Rule {
-                head: Atom {
-                    pred_sym: "academicAncestor".to_string(),
-                    terms: vec![Term::Var("X".to_string()), Term::Var("Z".to_string())],
-                },
-                body: vec![
-                    Atom {
-                        pred_sym: "adviser".to_string(),
-                        terms: vec![Term::Var("X".to_string()), Term::Var("Y".to_string())],
-                    },
-                    Atom {
-                        pred_sym: "academicAncestor".to_string(),
-                        terms: vec![Term::Var("Y".to_string()), Term::Var("Z".to_string())],
-                    },
-                ],
-            },
+            rule!(atom!("academicAncestor", var!("X"), var!("Y")) =>
+                atom!("adviser", var!("X"), var!("Y"))),
+            rule!(atom!("academicAncestor", var!("X"), var!("Z")) =>
+                atom!("adviser", var!("X"), var!("Y")),
+                atom!("academicAncestor", var!("Y"), var!("Z"))),
         ]);
 
         let program = Program(rules);
@@ -608,5 +646,22 @@ mod tests {
                 ])
             )
         );
+    }
+
+    #[test]
+    #[should_panic = "all rules must be range-restricted"]
+    fn rules_are_range_restricted() {
+        let program: Program = Program(vec![Rule {
+            head: Atom {
+                pred_sym: "rangeUnrestricted".to_string(),
+                terms: vec![Term::Var("X".to_string())],
+            },
+            body: vec![Atom {
+                pred_sym: "rangeUnrestricted".to_string(),
+                terms: vec![Term::Var("Y".to_string())],
+            }],
+        }]);
+
+        let _ = solve(&program);
     }
 }
