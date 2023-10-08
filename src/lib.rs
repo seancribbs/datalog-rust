@@ -2,6 +2,10 @@ use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
 
+mod parsing;
+
+pub use parsing::parse;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule {
     pub head: Atom,
@@ -121,7 +125,7 @@ impl Display for Term {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Program(pub Vec<Rule>);
 
 impl Display for Program {
@@ -663,5 +667,35 @@ mod tests {
         }]);
 
         let _ = solve(&program);
+    }
+
+    #[test]
+    fn parses_datalog() {
+        let program_text = include_str!("../example.datalog");
+        let advisers = [
+            ("Andrew Rice", "Mistral Contrastin"),
+            ("Andy Hopper", "Andrew Rice"),
+            ("Alan Mycroft", "Dominic Orchard"),
+            ("David Wheeler", "Andy Hopper"),
+            ("Rod Burstall", "Alan Mycroft"),
+            ("Robin Milner", "Alan Mycroft"),
+        ];
+
+        let mut rules: Vec<_> = advisers
+            .iter()
+            .map(|(adviser, student)| rule!(atom!("adviser", symbol!(adviser), symbol!(student))))
+            .collect();
+
+        rules.extend(vec![
+            rule!(atom!("academicAncestor", var!("X"), var!("Y")) =>
+                atom!("adviser", var!("X"), var!("Y"))),
+            rule!(atom!("academicAncestor", var!("X"), var!("Z")) =>
+                atom!("adviser", var!("X"), var!("Y")),
+                atom!("academicAncestor", var!("Y"), var!("Z"))),
+        ]);
+
+        let program = Program(rules);
+
+        assert_eq!(parse(program_text).unwrap().1, program)
     }
 }
