@@ -12,6 +12,7 @@ pub struct Rule {
     pub body: Vec<Atom>,
 }
 
+#[macro_export]
 macro_rules! rule {
     ($head:expr => $($body:expr),+) => {
         Rule {
@@ -72,6 +73,7 @@ pub struct Atom {
     pub terms: Vec<Term>,
 }
 
+#[macro_export]
 macro_rules! atom {
     ($pred_sym:expr, $($term:expr),*) => {
         Atom {
@@ -104,12 +106,14 @@ pub enum Term {
     Sym(String),
 }
 
+#[macro_export]
 macro_rules! var {
     ($name:expr) => {
         Term::Var($name.to_string())
     };
 }
 
+#[macro_export]
 macro_rules! symbol {
     ($name:expr) => {
         Term::Sym($name.to_string())
